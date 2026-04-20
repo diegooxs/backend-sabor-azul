@@ -11,36 +11,34 @@ app.use(express.json());
 
 app.post("/api/login", async (req, res) => {
   const { username, password } = req.body;
-  console.log(`Intento de login para: ${username}`);
+  
   try {
     const result = await pool.query("SELECT * FROM users WHERE username = $1", [
       username.trim(),
     ]);
 
-    if (result.rows.length === 0)
-      return res.status(401).json({ message: "No existe" });
+    if (result.rows.length === 0) {
+      return res.status(401).json({ message: "El usuario no existe" });
+    }
 
     const user = result.rows[0];
 
-    let hashParaComparar = user.password;
+    let hashParaComparar = user.password.replace(/^\$2y\$/, "$2b$");
 
-    if (hashParaComparar.startsWith("$2y$")) {
-      hashParaComparar = hashParaComparar.replace(/^\$2y\$/, "$2b$");
-    }
-
-    const match =
-      password === "admin123" ||
-      (await bcrypt.compare(password, hashParaComparar));
+    const match = await bcrypt.compare(password, hashParaComparar);
       
     if (match) {
-      console.log(`Login exitoso: ${username}`);
-      return res.json({ rol: user.rol, username: user.username });
+      return res.json({ 
+        rol: user.rol, 
+        username: user.username,
+        message: "¡Bienvenido!" 
+      });
     }
 
-    res.status(401).json({ message: "Clave incorrecta" });
+    res.status(401).json({ message: "Contraseña incorrecta" });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Error en login" });
+    console.error("Error en login:", err);
+    res.status(500).json({ error: "Error interno en el servidor" });
   }
 });
 
@@ -57,11 +55,9 @@ app.get("/api/usuarios", async (req, res) => {
 
 app.post("/api/usuarios", async (req, res) => {
   const { username, password, rol } = req.body;
-  console.log(`Creando usuario: ${username}`);
   try {
     const salt = await bcrypt.genSalt(10);
-    let hashedPass = await bcrypt.hash(password, salt);
-    hashedPass = hashedPass.replace(/^\$2b\$/, "$2y$");
+    const hashedPass = await bcrypt.hash(password, salt);
 
     const result = await pool.query(
       "INSERT INTO users (username, password, rol) VALUES ($1, $2, $3) RETURNING id, username, rol",
@@ -69,7 +65,7 @@ app.post("/api/usuarios", async (req, res) => {
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "No se pudo crear el usuario" });
   }
 });
 
