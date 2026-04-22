@@ -108,11 +108,21 @@ app.delete("/api/usuarios/:id", async (req, res) => {
   }
 });
 
+app.get("/api/categorias", async (req, res) => {
+  try {
+    const result = await pool.query(
+      "SELECT id, nombre FROM categorias ORDER BY id ASC"
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: "Error al obtener categorías" });
+  }
+});
 
 app.get("/api/platillos", async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT p.id, p.nombre, p.descripcion, p.precio, p.imagen, c.nombre as categoria 
+      SELECT p.id, p.nombre, p.descripcion, p.precio, p.imagen, p.categoria_id, c.nombre as categoria 
       FROM platillos p 
       JOIN categorias c ON p.categoria_id = c.id
       ORDER BY p.id ASC
@@ -125,27 +135,13 @@ app.get("/api/platillos", async (req, res) => {
 
 app.post("/api/platillos", async (req, res) => {
   const { nombre, descripcion, precio, imagen, categoria_id } = req.body;
-  
-  console.log("Datos recibidos en POST /api/platillos:", { 
-    nombre, 
-    descripcion, 
-    precio, 
-    imagen, 
-    categoria_id 
-  });
-
   try {
-    if (!categoria_id) {
-      return res.status(400).json({ error: "categoria_id es requerido" });
-    }
-
     const result = await pool.query(
       "INSERT INTO platillos (nombre, descripcion, precio, imagen, categoria_id) VALUES ($1, $2, $3, $4, $5) RETURNING *",
       [nombre, descripcion, precio, imagen, categoria_id]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
-    console.error("Error en POST platillos:", err);
     res.status(500).json({ error: "Error al crear platillo" });
   }
 });
@@ -158,6 +154,28 @@ app.delete("/api/platillos/:id", async (req, res) => {
     res.status(500).json({ error: "Error al eliminar platillo" });
   }
 });
+
+app.put("/api/platillos/:id", async (req, res) => {
+  const { id } = req.params;
+  const { nombre, descripcion, precio, imagen, categoria_id } = req.body;
+
+  try {
+    const result = await pool.query(
+      "UPDATE platillos SET nombre=$1, descripcion=$2, precio=$3, imagen=$4, categoria_id=$5 WHERE id=$6 RETURNING *",
+      [nombre, descripcion, precio, imagen, categoria_id, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Platillo no encontrado" });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("Error en PUT platillos:", err);
+    res.status(500).json({ error: "Error al actualizar platillo" });
+  }
+});
+
 const PORT = 3000;
 app.listen(PORT, () => {
   console.log(`\n==============================================`);
