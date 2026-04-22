@@ -226,6 +226,75 @@ app.put("/api/platillos/:id", async (req, res) => {
   }
 });
 
+const seleccionarMensajesContacto = `
+  SELECT
+    id::int AS id,
+    nombre,
+    email,
+    mensaje,
+    TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI') AS fecha
+  FROM mensajes_contacto
+`;
+
+app.get("/api/mensajes-contacto", async (req, res) => {
+  try {
+    const result = await pool.query(
+      `${seleccionarMensajesContacto} ORDER BY created_at DESC, id DESC`
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error("Error en GET mensajes-contacto:", err);
+    res.status(500).json({ error: "Error al obtener mensajes de contacto" });
+  }
+});
+
+app.post("/api/mensajes-contacto", async (req, res) => {
+  const { nombre, email, mensaje } = req.body;
+
+  if (!nombre || !nombre.trim() || !email || !email.trim() || !mensaje || !mensaje.trim()) {
+    return res.status(400).json({ error: "Todos los campos son requeridos" });
+  }
+
+  try {
+    const result = await pool.query(
+      `
+        INSERT INTO mensajes_contacto (nombre, email, mensaje)
+        VALUES ($1, $2, $3)
+        RETURNING id
+      `,
+      [nombre.trim(), email.trim(), mensaje.trim()]
+    );
+
+    const mensajeCreado = await pool.query(
+      `${seleccionarMensajesContacto} WHERE id = $1`,
+      [result.rows[0].id]
+    );
+
+    res.status(201).json(mensajeCreado.rows[0]);
+  } catch (err) {
+    console.error("Error en POST mensajes-contacto:", err);
+    res.status(500).json({ error: "Error al guardar mensaje de contacto" });
+  }
+});
+
+app.delete("/api/mensajes-contacto/:id", async (req, res) => {
+  try {
+    const result = await pool.query(
+      "DELETE FROM mensajes_contacto WHERE id = $1 RETURNING id",
+      [req.params.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Mensaje no encontrado" });
+    }
+
+    res.json({ message: "Mensaje eliminado correctamente" });
+  } catch (err) {
+    console.error("Error en DELETE mensajes-contacto:", err);
+    res.status(500).json({ error: "Error al eliminar mensaje de contacto" });
+  }
+});
+
 const seleccionarReservas = `
   SELECT
     id::int AS id,
