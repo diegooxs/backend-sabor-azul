@@ -192,11 +192,32 @@ app.put("/api/platillos/:id", async (req, res) => {
   }
 });
 
+const seleccionarReservas = `
+  SELECT
+    id::int AS id,
+    user_id,
+    nombre,
+    email,
+    telefono,
+    TO_CHAR(fecha, 'YYYY-MM-DD') AS fecha,
+    TO_CHAR(hora, 'HH24:MI') AS hora,
+    personas,
+    estado,
+    created_at,
+    updated_at
+  FROM reservas
+`;
+
+async function obtenerReservaPorId(id) {
+  const result = await pool.query(`${seleccionarReservas} WHERE id = $1`, [id]);
+  return result.rows[0];
+}
+
 // RESERVAS ENDPOINTS
 app.get("/api/reservas", async (req, res) => {
   try {
     const result = await pool.query(
-      "SELECT * FROM reservas ORDER BY fecha DESC, hora DESC"
+      `${seleccionarReservas} ORDER BY fecha DESC, hora DESC`
     );
     res.json(result.rows);
   } catch (err) {
@@ -215,11 +236,12 @@ app.post("/api/reservas", async (req, res) => {
     }
 
     const result = await pool.query(
-      "INSERT INTO reservas (nombre, email, telefono, fecha, hora, personas, estado) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *",
+      "INSERT INTO reservas (nombre, email, telefono, fecha, hora, personas, estado) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
       [nombre, email, telefono, fecha, hora, personas, "pendiente"]
     );
 
-    res.status(201).json(result.rows[0]);
+    const reserva = await obtenerReservaPorId(result.rows[0].id);
+    res.status(201).json(reserva);
   } catch (err) {
     console.error("Error en POST reservas:", err);
     res.status(500).json({ error: "Error al crear reserva" });
@@ -236,11 +258,11 @@ app.put("/api/reservas/:id", async (req, res) => {
 
     if (estado) {
       // Actualizar solo el estado
-      query = "UPDATE reservas SET estado=$1 WHERE id=$2 RETURNING *";
+      query = "UPDATE reservas SET estado=$1, updated_at=CURRENT_TIMESTAMP WHERE id=$2 RETURNING id";
       params = [estado, id];
     } else {
       // Actualizar todos los campos
-      query = "UPDATE reservas SET nombre=$1, email=$2, telefono=$3, fecha=$4, hora=$5, personas=$6 WHERE id=$7 RETURNING *";
+      query = "UPDATE reservas SET nombre=$1, email=$2, telefono=$3, fecha=$4, hora=$5, personas=$6, updated_at=CURRENT_TIMESTAMP WHERE id=$7 RETURNING id";
       params = [nombre, email, telefono, fecha, hora, personas, id];
     }
 
@@ -250,7 +272,8 @@ app.put("/api/reservas/:id", async (req, res) => {
       return res.status(404).json({ error: "Reserva no encontrada" });
     }
 
-    res.json(result.rows[0]);
+    const reserva = await obtenerReservaPorId(result.rows[0].id);
+    res.json(reserva);
   } catch (err) {
     console.error("Error en PUT reservas:", err);
     res.status(500).json({ error: "Error al actualizar reserva" });
