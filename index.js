@@ -108,6 +108,42 @@ app.delete("/api/usuarios/:id", async (req, res) => {
   }
 });
 
+
+app.get("/api/platillos", async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT p.id, p.nombre, p.descripcion, p.precio, p.imagen, c.nombre as categoria 
+      FROM platillos p 
+      JOIN categorias c ON p.categoria_id = c.id
+      ORDER BY p.id ASC
+    `);
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: "Error al obtener platillos" });
+  }
+});
+
+app.post("/api/platillos", async (req, res) => {
+  const { nombre, descripcion, precio, imagen, categoria_id } = req.body;
+  try {
+    const result = await pool.query(
+      "INSERT INTO platillos (nombre, descripcion, precio, imagen, categoria_id) VALUES ($1, $2, $3, $4, $5) RETURNING *",
+      [nombre, descripcion, precio, imagen, categoria_id]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: "Error al crear platillo" });
+  }
+});
+
+app.delete("/api/platillos/:id", async (req, res) => {
+  try {
+    await pool.query("DELETE FROM platillos WHERE id = $1", [req.params.id]);
+    res.json({ message: "Platillo eliminado" });
+  } catch (err) {
+    res.status(500).json({ error: "Error al eliminar platillo" });
+  }
+});
 const PORT = 3000;
 app.listen(PORT, () => {
   console.log(`\n==============================================`);
