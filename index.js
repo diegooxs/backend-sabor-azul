@@ -42,6 +42,40 @@ app.post("/api/login", async (req, res) => {
   }
 });
 
+app.post("/api/recuperar-password", async (req, res) => {
+  const { username, nuevaPassword } = req.body;
+
+  if (!username || !username.trim() || !nuevaPassword || nuevaPassword.length < 6) {
+    return res.status(400).json({
+      message: "Ingresa tu usuario y una nueva contraseña de al menos 6 caracteres",
+    });
+  }
+
+  try {
+    const userResult = await pool.query("SELECT id FROM users WHERE username = $1", [
+      username.trim(),
+    ]);
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ message: "El usuario no existe" });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    let hashedPass = await bcrypt.hash(nuevaPassword, salt);
+    hashedPass = hashedPass.replace(/^\$2b\$/, "$2y$");
+
+    await pool.query("UPDATE users SET password = $1 WHERE id = $2", [
+      hashedPass,
+      userResult.rows[0].id,
+    ]);
+
+    res.json({ message: "Contraseña actualizada correctamente" });
+  } catch (err) {
+    console.error("Error en recuperar-password:", err);
+    res.status(500).json({ error: "Error interno al actualizar contraseña" });
+  }
+});
+
 app.get("/api/usuarios", async (req, res) => {
   try {
     const result = await pool.query(
