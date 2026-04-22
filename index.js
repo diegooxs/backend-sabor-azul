@@ -213,7 +213,6 @@ async function obtenerReservaPorId(id) {
   return result.rows[0];
 }
 
-// RESERVAS ENDPOINTS
 app.get("/api/reservas", async (req, res) => {
   try {
     const result = await pool.query(
@@ -230,7 +229,6 @@ app.post("/api/reservas", async (req, res) => {
   const { nombre, email, telefono, fecha, hora, personas } = req.body;
 
   try {
-    // Validar datos
     if (!nombre || !email || !telefono || !fecha || !hora || !personas) {
       return res.status(400).json({ error: "Todos los campos son requeridos" });
     }
@@ -257,11 +255,9 @@ app.put("/api/reservas/:id", async (req, res) => {
     let params;
 
     if (estado) {
-      // Actualizar solo el estado
       query = "UPDATE reservas SET estado=$1, updated_at=CURRENT_TIMESTAMP WHERE id=$2 RETURNING id";
       params = [estado, id];
     } else {
-      // Actualizar todos los campos
       query = "UPDATE reservas SET nombre=$1, email=$2, telefono=$3, fecha=$4, hora=$5, personas=$6, updated_at=CURRENT_TIMESTAMP WHERE id=$7 RETURNING id";
       params = [nombre, email, telefono, fecha, hora, personas, id];
     }
