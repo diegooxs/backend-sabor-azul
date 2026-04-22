@@ -125,13 +125,27 @@ app.get("/api/platillos", async (req, res) => {
 
 app.post("/api/platillos", async (req, res) => {
   const { nombre, descripcion, precio, imagen, categoria_id } = req.body;
+  
+  console.log("Datos recibidos en POST /api/platillos:", { 
+    nombre, 
+    descripcion, 
+    precio, 
+    imagen, 
+    categoria_id 
+  });
+
   try {
+    if (!categoria_id) {
+      return res.status(400).json({ error: "categoria_id es requerido" });
+    }
+
     const result = await pool.query(
       "INSERT INTO platillos (nombre, descripcion, precio, imagen, categoria_id) VALUES ($1, $2, $3, $4, $5) RETURNING *",
       [nombre, descripcion, precio, imagen, categoria_id]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
+    console.error("Error en POST platillos:", err);
     res.status(500).json({ error: "Error al crear platillo" });
   }
 });
