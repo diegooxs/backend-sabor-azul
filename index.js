@@ -196,7 +196,7 @@ app.put("/api/platillos/:id", async (req, res) => {
 app.get("/api/reservas", async (req, res) => {
   try {
     const result = await pool.query(
-      "SELECT * FROM public_reservas ORDER BY fecha DESC, hora DESC"
+      "SELECT * FROM reservas ORDER BY fecha DESC, hora DESC"
     );
     res.json(result.rows);
   } catch (err) {
@@ -215,7 +215,7 @@ app.post("/api/reservas", async (req, res) => {
     }
 
     const result = await pool.query(
-      "INSERT INTO public_reservas (nombre, email, telefono, fecha, hora, personas, estado) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *",
+      "INSERT INTO reservas (nombre, email, telefono, fecha, hora, personas, estado) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *",
       [nombre, email, telefono, fecha, hora, personas, "pendiente"]
     );
 
@@ -236,11 +236,11 @@ app.put("/api/reservas/:id", async (req, res) => {
 
     if (estado) {
       // Actualizar solo el estado
-      query = "UPDATE public_reservas SET estado=$1 WHERE id=$2 RETURNING *";
+      query = "UPDATE reservas SET estado=$1 WHERE id=$2 RETURNING *";
       params = [estado, id];
     } else {
       // Actualizar todos los campos
-      query = "UPDATE public_reservas SET nombre=$1, email=$2, telefono=$3, fecha=$4, hora=$5, personas=$6 WHERE id=$7 RETURNING *";
+      query = "UPDATE reservas SET nombre=$1, email=$2, telefono=$3, fecha=$4, hora=$5, personas=$6 WHERE id=$7 RETURNING *";
       params = [nombre, email, telefono, fecha, hora, personas, id];
     }
 
@@ -259,7 +259,7 @@ app.put("/api/reservas/:id", async (req, res) => {
 
 app.delete("/api/reservas/:id", async (req, res) => {
   try {
-    const result = await pool.query("DELETE FROM public_reservas WHERE id = $1 RETURNING id", [req.params.id]);
+    const result = await pool.query("DELETE FROM reservas WHERE id = $1 RETURNING id", [req.params.id]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: "Reserva no encontrada" });
