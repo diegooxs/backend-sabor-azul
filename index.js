@@ -192,6 +192,86 @@ app.put("/api/platillos/:id", async (req, res) => {
   }
 });
 
+// RESERVAS ENDPOINTS
+app.get("/api/reservas", async (req, res) => {
+  try {
+    const result = await pool.query(
+      "SELECT * FROM public_reservas ORDER BY fecha DESC, hora DESC"
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error("Error en GET reservas:", err);
+    res.status(500).json({ error: "Error al obtener reservas" });
+  }
+});
+
+app.post("/api/reservas", async (req, res) => {
+  const { nombre, email, telefono, fecha, hora, personas } = req.body;
+
+  try {
+    // Validar datos
+    if (!nombre || !email || !telefono || !fecha || !hora || !personas) {
+      return res.status(400).json({ error: "Todos los campos son requeridos" });
+    }
+
+    const result = await pool.query(
+      "INSERT INTO public_reservas (nombre, email, telefono, fecha, hora, personas, estado) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *",
+      [nombre, email, telefono, fecha, hora, personas, "pendiente"]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error("Error en POST reservas:", err);
+    res.status(500).json({ error: "Error al crear reserva" });
+  }
+});
+
+app.put("/api/reservas/:id", async (req, res) => {
+  const { id } = req.params;
+  const { estado, nombre, email, telefono, fecha, hora, personas } = req.body;
+
+  try {
+    let query;
+    let params;
+
+    if (estado) {
+      // Actualizar solo el estado
+      query = "UPDATE public_reservas SET estado=$1 WHERE id=$2 RETURNING *";
+      params = [estado, id];
+    } else {
+      // Actualizar todos los campos
+      query = "UPDATE public_reservas SET nombre=$1, email=$2, telefono=$3, fecha=$4, hora=$5, personas=$6 WHERE id=$7 RETURNING *";
+      params = [nombre, email, telefono, fecha, hora, personas, id];
+    }
+
+    const result = await pool.query(query, params);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Reserva no encontrada" });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("Error en PUT reservas:", err);
+    res.status(500).json({ error: "Error al actualizar reserva" });
+  }
+});
+
+app.delete("/api/reservas/:id", async (req, res) => {
+  try {
+    const result = await pool.query("DELETE FROM public_reservas WHERE id = $1 RETURNING id", [req.params.id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Reserva no encontrada" });
+    }
+
+    res.json({ message: "Reserva eliminada correctamente" });
+  } catch (err) {
+    console.error("Error en DELETE reservas:", err);
+    res.status(500).json({ error: "Error al eliminar reserva" });
+  }
+});
+
 const PORT = 3000;
 app.listen(PORT, () => {
   console.log(`\n==============================================`);
