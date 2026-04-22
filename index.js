@@ -137,11 +137,20 @@ app.post("/api/platillos", async (req, res) => {
   const { nombre, descripcion, precio, imagen, categoria_id } = req.body;
   try {
     const result = await pool.query(
-      "INSERT INTO platillos (nombre, descripcion, precio, imagen, categoria_id) VALUES ($1, $2, $3, $4, $5) RETURNING *",
+      "INSERT INTO platillos (nombre, descripcion, precio, imagen, categoria_id) VALUES ($1, $2, $3, $4, $5) RETURNING id, nombre, descripcion, precio, imagen, categoria_id",
       [nombre, descripcion, precio, imagen, categoria_id]
     );
-    res.status(201).json(result.rows[0]);
+    
+    const platillo = result.rows[0];
+    const catResult = await pool.query("SELECT nombre FROM categorias WHERE id = $1", [platillo.categoria_id]);
+    
+    if (catResult.rows.length > 0) {
+      platillo.categoria = catResult.rows[0].nombre;
+    }
+    
+    res.status(201).json(platillo);
   } catch (err) {
+    console.error("Error en POST platillos:", err);
     res.status(500).json({ error: "Error al crear platillo" });
   }
 });
@@ -161,7 +170,7 @@ app.put("/api/platillos/:id", async (req, res) => {
 
   try {
     const result = await pool.query(
-      "UPDATE platillos SET nombre=$1, descripcion=$2, precio=$3, imagen=$4, categoria_id=$5 WHERE id=$6 RETURNING *",
+      "UPDATE platillos SET nombre=$1, descripcion=$2, precio=$3, imagen=$4, categoria_id=$5 WHERE id=$6 RETURNING id, nombre, descripcion, precio, imagen, categoria_id",
       [nombre, descripcion, precio, imagen, categoria_id, id]
     );
 
@@ -169,7 +178,14 @@ app.put("/api/platillos/:id", async (req, res) => {
       return res.status(404).json({ error: "Platillo no encontrado" });
     }
 
-    res.json(result.rows[0]);
+    const platillo = result.rows[0];
+    const catResult = await pool.query("SELECT nombre FROM categorias WHERE id = $1", [platillo.categoria_id]);
+    
+    if (catResult.rows.length > 0) {
+      platillo.categoria = catResult.rows[0].nombre;
+    }
+    
+    res.json(platillo);
   } catch (err) {
     console.error("Error en PUT platillos:", err);
     res.status(500).json({ error: "Error al actualizar platillo" });
