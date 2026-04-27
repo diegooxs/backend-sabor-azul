@@ -9,6 +9,181 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+const ESTADOS_PEDIDO = new Set(["Pendiente", "Preparando", "Entregado", "Cancelado"]);
+
+function normalizarTexto(valor) {
+  return typeof valor === "string" ? valor.trim() : "";
+}
+
+function convertirNumero(valor) {
+  const numero = Number(valor);
+  return Number.isFinite(numero) ? numero : NaN;
+}
+
+function validarPedido(payload) {
+  const cliente = normalizarTexto(payload?.cliente);
+  const estado = normalizarTexto(payload?.estado) || "Pendiente";
+  const productos = Array.isArray(payload?.productos) ? payload.productos : [];
+  const userId = payload?.user_id == null || payload.user_id === "" ? null : Number(payload.user_id);
+
+  if (!cliente) {
+    return { error: "El nombre del cliente es requerido" };
+  }
+
+  if (!ESTADOS_PEDIDO.has(estado)) {
+    return { error: "El estado del pedido no es válido" };
+  }
+
+  if (!Array.isArray(productos) || productos.length === 0) {
+    return { error: "El pedido debe incluir al menos un producto" };
+  }
+
+  if (userId !== null && !Number.isInteger(userId)) {
+    return { error: "El usuario asociado al pedido no es válido" };
+  }
+
+  const productosNormalizados = [];
+
+  for (const producto of productos) {
+    const nombre = normalizarTexto(producto?.nombre ?? producto?.nombre_producto);
+    const cantidad = Number(producto?.cantidad);
+    const precioUnitario = convertirNumero(producto?.precio ?? producto?.precio_unitario);
+    const platilloId =
+      producto?.id == null || producto.id === "" ? null : Number(producto.id);
+
+    if (!nombre) {
+      return { error: "Todos los productos deben incluir nombre" };
+    }
+
+    if (!Number.isInteger(cantidad) || cantidad <= 0) {
+      return { error: `La cantidad del producto ${nombre} no es válida` };
+    }
+
+    if (!Number.isFinite(precioUnitario) || precioUnitario < 0) {
+      return { error: `El precio del producto ${nombre} no es válido` };
+    }
+
+    if (platilloId !== null && !Number.isInteger(platilloId)) {
+      return { error: `El identificador del producto ${nombre} no es válido` };
+    }
+
+    productosNormalizados.push({
+      platillo_id: platilloId,
+      nombre_producto: nombre,
+      cantidad,
+      precio_unitario: Number(precioUnitario.toFixed(2)),
+      subtotal: Number((cantidad * precioUnitario).toFixed(2)),
+    });
+  }
+
+  const totalCalculado = Number(
+    productosNormalizados.reduce((acumulado, producto) => acumulado + producto.subtotal, 0).toFixed(2)
+  );
+  const totalRecibido = payload?.total == null ? totalCalculado : convertirNumero(payload.total);
+
+  if (!Number.isFinite(totalRecibido) || totalRecibido < 0) {
+    return { error: "El total del pedido no es válido" };
+  }
+
+  if (Math.abs(totalCalculado - totalRecibido) > 0.01) {
+    return { error: "El total del pedido no coincide con el detalle enviado" };
+  }
+
+  return {
+    value: {
+      cliente,
+      estado,
+      user_id: userId,
+      total: totalCalculado,
+      productos: productosNormalizados,
+    },
+  };
+}
+
+function mapearPedido(row) {
+  return {
+    id: Number(row.id),
+    user_id: row.user_id == null ? null : Number(row.user_id),
+    cliente: row.cliente,
+    estado: row.estado,
+    total: Number(row.total),
+    fecha: row.fecha,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    productos: [],
+  };
+}
+
+async function obtenerPedidos(params = []) {
+  const result = await pool.query(
+    `
+      SELECT
+        p.id,
+        p.user_id,
+        p.cliente,
+        p.estado,
+        p.total,
+        COALESCE(p.fecha, p.created_at) AS fecha,
+        p.created_at,
+        p.updated_at,
+        d.id AS detalle_id,
+        d.platillo_id,
+        d.nombre_producto,
+        d.cantidad,
+        d.precio_unitario,
+        d.subtotal
+      FROM pedidos p
+      LEFT JOIN pedido_detalles d ON d.pedido_id = p.id
+      WHERE 1 = 1
+      ${params.length ? "AND p.id = $1" : ""}
+      ORDER BY COALESCE(p.fecha, p.created_at) DESC, p.id DESC, d.id ASC
+    `,
+    params
+  );
+
+  const pedidos = [];
+  const pedidosPorId = new Map();
+
+  for (const row of result.rows) {
+    if (!pedidosPorId.has(row.id)) {
+      const pedido = mapearPedido(row);
+      pedidosPorId.set(row.id, pedido);
+      pedidos.push(pedido);
+    }
+
+    if (row.detalle_id != null) {
+      pedidosPorId.get(row.id).productos.push({
+        id: Number(row.platillo_id ?? row.detalle_id),
+        detalle_id: Number(row.detalle_id),
+        platillo_id: row.platillo_id == null ? null : Number(row.platillo_id),
+        nombre: row.nombre_producto,
+        cantidad: Number(row.cantidad),
+        precio: Number(row.precio_unitario),
+        subtotal: Number(row.subtotal),
+      });
+    }
+  }
+
+  return pedidos;
+}
+
+async function obtenerPlatillosExistentes(client, productos) {
+  const ids = productos
+    .map((producto) => producto.platillo_id)
+    .filter((id) => Number.isInteger(id));
+
+  if (ids.length === 0) {
+    return new Set();
+  }
+
+  const result = await client.query(
+    "SELECT id FROM platillos WHERE id = ANY($1::int[])",
+    [ids]
+  );
+
+  return new Set(result.rows.map((row) => Number(row.id)));
+}
+
 app.post("/api/login", async (req, res) => {
   const { username, password } = req.body;
   
@@ -29,6 +204,7 @@ app.post("/api/login", async (req, res) => {
       
     if (match) {
       return res.json({ 
+        id: user.id,
         rol: user.rol, 
         username: user.username,
         message: "¡Bienvenido!" 
@@ -391,6 +567,150 @@ app.delete("/api/reservas/:id", async (req, res) => {
   } catch (err) {
     console.error("Error en DELETE reservas:", err);
     res.status(500).json({ error: "Error al eliminar reserva" });
+  }
+});
+
+app.get("/api/pedidos", async (req, res) => {
+  try {
+    const pedidos = await obtenerPedidos();
+    res.json(pedidos);
+  } catch (err) {
+    console.error("Error en GET pedidos:", err);
+    res.status(500).json({ error: "Error al obtener pedidos" });
+  }
+});
+
+app.get("/api/pedidos/:id", async (req, res) => {
+  try {
+    const pedidos = await obtenerPedidos([req.params.id]);
+    const pedido = pedidos[0];
+
+    if (!pedido) {
+      return res.status(404).json({ error: "Pedido no encontrado" });
+    }
+
+    res.json(pedido);
+  } catch (err) {
+    console.error("Error en GET pedido por id:", err);
+    res.status(500).json({ error: "Error al obtener el pedido" });
+  }
+});
+
+app.post("/api/pedidos", async (req, res) => {
+  const validacion = validarPedido(req.body);
+
+  if (validacion.error) {
+    return res.status(400).json({ error: validacion.error });
+  }
+
+  const { cliente, estado, total, user_id, productos } = validacion.value;
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+    const platillosExistentes = await obtenerPlatillosExistentes(client, productos);
+
+    const pedidoResult = await client.query(
+      `
+        INSERT INTO pedidos (user_id, cliente, estado, total, fecha, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        RETURNING id
+      `,
+      [user_id, cliente, estado, total]
+    );
+
+    const pedidoId = pedidoResult.rows[0].id;
+
+    for (const producto of productos) {
+      await client.query(
+        `
+          INSERT INTO pedido_detalles (
+            pedido_id,
+            platillo_id,
+            nombre_producto,
+            cantidad,
+            precio_unitario,
+            subtotal,
+            created_at,
+            updated_at
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        `,
+        [
+          pedidoId,
+          platillosExistentes.has(producto.platillo_id) ? producto.platillo_id : null,
+          producto.nombre_producto,
+          producto.cantidad,
+          producto.precio_unitario,
+          producto.subtotal,
+        ]
+      );
+    }
+
+    await client.query("COMMIT");
+
+    const pedidos = await obtenerPedidos([pedidoId]);
+    res.status(201).json(pedidos[0]);
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("Error en POST pedidos:", err);
+    res.status(500).json({ error: "Error al crear pedido" });
+  } finally {
+    client.release();
+  }
+});
+
+app.put("/api/pedidos/:id", async (req, res) => {
+  const { estado } = req.body;
+
+  if (!ESTADOS_PEDIDO.has(estado)) {
+    return res.status(400).json({ error: "El estado del pedido no es válido" });
+  }
+
+  try {
+    const result = await pool.query(
+      `
+        UPDATE pedidos
+        SET estado = $1, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $2
+        RETURNING id
+      `,
+      [estado, req.params.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Pedido no encontrado" });
+    }
+
+    const pedidos = await obtenerPedidos([result.rows[0].id]);
+    res.json(pedidos[0]);
+  } catch (err) {
+    console.error("Error en PUT pedidos:", err);
+    res.status(500).json({ error: "Error al actualizar pedido" });
+  }
+});
+
+app.delete("/api/pedidos/:id", async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+    await client.query("DELETE FROM pedido_detalles WHERE pedido_id = $1", [req.params.id]);
+    const result = await client.query("DELETE FROM pedidos WHERE id = $1 RETURNING id", [req.params.id]);
+
+    if (result.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Pedido no encontrado" });
+    }
+
+    await client.query("COMMIT");
+    res.json({ message: "Pedido eliminado correctamente" });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("Error en DELETE pedidos:", err);
+    res.status(500).json({ error: "Error al eliminar pedido" });
+  } finally {
+    client.release();
   }
 });
 
