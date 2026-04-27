@@ -184,6 +184,24 @@ async function obtenerPlatillosExistentes(client, productos) {
   return new Set(result.rows.map((row) => Number(row.id)));
 }
 
+app.get("/api/health", async (_req, res) => {
+  try {
+    const result = await pool.query("SELECT NOW() AS now");
+    res.json({
+      ok: true,
+      database: "connected",
+      now: result.rows[0].now,
+    });
+  } catch (error) {
+    console.error("Error en healthcheck:", error);
+    res.status(500).json({
+      ok: false,
+      database: "error",
+      error: error.message,
+    });
+  }
+});
+
 app.post("/api/login", async (req, res) => {
   const { username, password } = req.body;
   
