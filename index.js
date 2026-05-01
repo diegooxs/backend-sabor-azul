@@ -15,9 +15,45 @@ function normalizarTexto(valor) {
   return typeof valor === "string" ? valor.trim() : "";
 }
 
+function obtenerFrontendUrl() {
+  return process.env.FRONTEND_URL || "http://localhost:5173";
+}
+
 function convertirNumero(valor) {
   const numero = Number(valor);
   return Number.isFinite(numero) ? numero : NaN;
+}
+
+function obtenerCoordenadasRestaurante() {
+  return {
+    lat: Number(process.env.RESTAURANT_LAT || 17.062635),
+    lng: Number(process.env.RESTAURANT_LNG || -96.727788),
+  };
+}
+
+async function obtenerUsuarioGoogle(idToken) {
+  const respuesta = await fetch(
+    `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`
+  );
+  const perfil = await respuesta.json();
+
+  if (!respuesta.ok) {
+    throw new Error(perfil.error_description || "Token de Google no válido");
+  }
+
+  if (process.env.GOOGLE_CLIENT_ID && perfil.aud !== process.env.GOOGLE_CLIENT_ID) {
+    throw new Error("El token de Google no pertenece a este cliente");
+  }
+
+  if (perfil.email_verified !== "true" && perfil.email_verified !== true) {
+    throw new Error("Google no confirmó el correo del usuario");
+  }
+
+  return {
+    email: perfil.email,
+    nombre: perfil.name || perfil.email,
+    foto: perfil.picture || "",
+  };
 }
 
 function validarPedido(payload) {
@@ -233,6 +269,45 @@ app.post("/api/login", async (req, res) => {
   } catch (err) {
     console.error("Error en login:", err);
     res.status(500).json({ error: "Error interno en el servidor" });
+  }
+});
+
+app.post("/api/login-google", async (req, res) => {
+  const { credential } = req.body;
+
+  if (!credential) {
+    return res.status(400).json({ message: "No se recibió la credencial de Google" });
+  }
+
+  try {
+    const perfilGoogle = await obtenerUsuarioGoogle(credential);
+    const username = perfilGoogle.email.toLowerCase();
+    const userResult = await pool.query("SELECT * FROM users WHERE username = $1", [
+      username,
+    ]);
+
+    let user = userResult.rows[0];
+
+    if (!user) {
+      const passwordTemporal = await bcrypt.hash(`google:${username}:${Date.now()}`, 10);
+      const nuevoUsuario = await pool.query(
+        "INSERT INTO users (username, password, rol) VALUES ($1, $2, $3) RETURNING id, username, rol",
+        [username, passwordTemporal, "cliente"]
+      );
+      user = nuevoUsuario.rows[0];
+    }
+
+    res.json({
+      id: user.id,
+      rol: user.rol,
+      username: perfilGoogle.nombre,
+      email: username,
+      foto: perfilGoogle.foto,
+      message: "Sesión iniciada con Google",
+    });
+  } catch (err) {
+    console.error("Error en login-google:", err);
+    res.status(401).json({ message: err.message || "No se pudo iniciar sesión con Google" });
   }
 });
 
@@ -588,6 +663,45 @@ app.delete("/api/reservas/:id", async (req, res) => {
   }
 });
 
+app.get("/api/distancia-restaurante", async (req, res) => {
+  const lat = Number(req.query.lat);
+  const lng = Number(req.query.lng);
+  const restaurante = obtenerCoordenadasRestaurante();
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return res.status(400).json({ error: "Coordenadas inválidas" });
+  }
+
+  try {
+    const osrmUrl = new URL(
+      `https://router.project-osrm.org/route/v1/driving/${lng},${lat};${restaurante.lng},${restaurante.lat}`
+    );
+    osrmUrl.searchParams.set("overview", "false");
+    osrmUrl.searchParams.set("alternatives", "false");
+    osrmUrl.searchParams.set("steps", "false");
+
+    const respuesta = await fetch(osrmUrl);
+    const datos = await respuesta.json();
+
+    if (!respuesta.ok || datos.code !== "Ok" || !datos.routes?.length) {
+      throw new Error(datos.message || "No se pudo calcular la ruta");
+    }
+
+    const ruta = datos.routes[0];
+
+    res.json({
+      proveedor: "OSRM",
+      distancia_km: Number((ruta.distance / 1000).toFixed(2)),
+      duracion_min: Math.round(ruta.duration / 60),
+      origen: { lat, lng },
+      destino: restaurante,
+    });
+  } catch (err) {
+    console.error("Error consultando OSRM:", err);
+    res.status(502).json({ error: "No se pudo calcular la distancia al restaurante" });
+  }
+});
+
 app.get("/api/pedidos", async (req, res) => {
   try {
     const pedidos = await obtenerPedidos();
@@ -678,6 +792,69 @@ app.post("/api/pedidos", async (req, res) => {
   }
 });
 
+app.post("/api/pagos/checkout-sesion", async (req, res) => {
+  const total = convertirNumero(req.body?.total);
+  const productos = Array.isArray(req.body?.productos) ? req.body.productos : [];
+
+  if (!Number.isFinite(total) || total <= 0 || productos.length === 0) {
+    return res.status(400).json({ error: "El pago debe incluir productos y un total válido" });
+  }
+
+  if (!process.env.STRIPE_SECRET_KEY) {
+    return res.json({
+      proveedor: "Stripe Checkout",
+      modo: "demo",
+      checkout_url: null,
+      message:
+        "Pago simulado. Agrega STRIPE_SECRET_KEY en el backend para redirigir a Stripe Checkout.",
+    });
+  }
+
+  try {
+    const params = new URLSearchParams();
+    params.set("mode", "payment");
+    params.set("success_url", `${obtenerFrontendUrl()}/#/menu?checkout=success`);
+    params.set("cancel_url", `${obtenerFrontendUrl()}/#/menu?checkout=cancel`);
+
+    productos.forEach((producto, index) => {
+      params.set(`line_items[${index}][quantity]`, String(Number(producto.cantidad) || 1));
+      params.set(`line_items[${index}][price_data][currency]`, "mxn");
+      params.set(
+        `line_items[${index}][price_data][unit_amount]`,
+        String(Math.max(1, Math.round(Number(producto.precio) * 100)))
+      );
+      params.set(
+        `line_items[${index}][price_data][product_data][name]`,
+        normalizarTexto(producto.nombre) || "Producto Sabor Azul"
+      );
+    });
+
+    const respuesta = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: params,
+    });
+    const datos = await respuesta.json();
+
+    if (!respuesta.ok) {
+      throw new Error(datos.error?.message || "No se pudo crear la sesión de Stripe");
+    }
+
+    res.json({
+      proveedor: "Stripe Checkout",
+      modo: "real",
+      session_id: datos.id,
+      checkout_url: datos.url,
+    });
+  } catch (err) {
+    console.error("Error creando sesión de Stripe:", err);
+    res.status(502).json({ error: "No se pudo crear la sesión de pago" });
+  }
+});
+
 app.put("/api/pedidos/:id", async (req, res) => {
   const { estado } = req.body;
 
@@ -732,11 +909,16 @@ app.delete("/api/pedidos/:id", async (req, res) => {
   }
 });
 
-const PORT = 3000;
-app.listen(PORT, () => {
-  console.log(`\n==============================================`);
-  console.log(` Servidor Sabor Azul (NODE) listo`);
-  console.log(` Puerto: ${PORT}`);
-  console.log(` Rutas registradas: LOGIN, GET, POST, DELETE`);
-  console.log(`==============================================\n`);
-});
+const PORT = process.env.PORT || 3000;
+
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`\n==============================================`);
+    console.log(` Servidor Sabor Azul (NODE) listo`);
+    console.log(` Puerto: ${PORT}`);
+    console.log(` Rutas registradas: LOGIN, GET, POST, DELETE`);
+    console.log(`==============================================\n`);
+  });
+}
+
+module.exports = app;
