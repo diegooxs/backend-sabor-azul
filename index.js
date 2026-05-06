@@ -2,6 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
+const nodemailer = require("nodemailer");
 const pool = require("./db");
 require("dotenv").config();
 
@@ -17,6 +18,62 @@ function normalizarTexto(valor) {
 
 function obtenerFrontendUrl() {
   return process.env.FRONTEND_URL || "http://localhost:5173";
+}
+
+function crearTransporterCorreo() {
+  const host = process.env.SMTP_HOST;
+  const port = Number(process.env.SMTP_PORT || 587);
+  const user = process.env.SMTP_USER;
+  const pass = process.env.SMTP_PASS;
+
+  if (!host || !user || !pass) {
+    return null;
+  }
+
+  return nodemailer.createTransport({
+    host,
+    port,
+    secure: port === 465,
+    auth: { user, pass },
+  });
+}
+
+function crearHtmlConfirmacionReserva(reserva) {
+  return `
+    <div style="font-family: Arial, sans-serif; color: #1f2937; line-height: 1.5;">
+      <h1 style="color: #1a365d;">Reserva recibida en Sabor Azul</h1>
+      <p>Hola <strong>${reserva.nombre}</strong>, hemos recibido tu solicitud de reservación.</p>
+      <table style="border-collapse: collapse; margin: 18px 0;">
+        <tr><td style="padding: 6px 12px; font-weight: bold;">Fecha</td><td style="padding: 6px 12px;">${reserva.fecha}</td></tr>
+        <tr><td style="padding: 6px 12px; font-weight: bold;">Hora</td><td style="padding: 6px 12px;">${reserva.hora}</td></tr>
+        <tr><td style="padding: 6px 12px; font-weight: bold;">Personas</td><td style="padding: 6px 12px;">${reserva.personas}</td></tr>
+        <tr><td style="padding: 6px 12px; font-weight: bold;">Estado</td><td style="padding: 6px 12px;">${reserva.estado}</td></tr>
+      </table>
+      <p>Te esperamos en Sabor Azul. Si necesitas cambiar algún dato, responde a este correo o contáctanos.</p>
+      <p style="color: #6b7280; font-size: 13px;">Este correo fue generado automáticamente.</p>
+    </div>
+  `;
+}
+
+async function enviarCorreoConfirmacionReserva(reserva) {
+  const transporter = crearTransporterCorreo();
+
+  if (!transporter) {
+    console.warn("Correo de reserva no enviado: faltan SMTP_HOST, SMTP_USER o SMTP_PASS.");
+    return { enviado: false, motivo: "smtp_no_configurado" };
+  }
+
+  await transporter.sendMail({
+    from: process.env.MAIL_FROM || process.env.SMTP_USER,
+    to: reserva.email,
+    subject: `Confirmación de reservación Sabor Azul - ${reserva.fecha} ${reserva.hora}`,
+    text:
+      `Hola ${reserva.nombre}, recibimos tu reservación para ${reserva.personas} persona(s) ` +
+      `el ${reserva.fecha} a las ${reserva.hora}. Estado: ${reserva.estado}.`,
+    html: crearHtmlConfirmacionReserva(reserva),
+  });
+
+  return { enviado: true };
 }
 
 function convertirNumero(valor) {
@@ -303,6 +360,7 @@ app.post("/api/login-google", async (req, res) => {
       username: perfilGoogle.nombre,
       email: username,
       foto: perfilGoogle.foto,
+      proveedor: "google",
       message: "Sesión iniciada con Google",
     });
   } catch (err) {
@@ -598,7 +656,7 @@ app.get("/api/reservas", async (req, res) => {
 });
 
 app.post("/api/reservas", async (req, res) => {
-  const { nombre, email, telefono, fecha, hora, personas } = req.body;
+  const { nombre, email, telefono, fecha, hora, personas, enviarConfirmacionEmail } = req.body;
 
   try {
     if (!nombre || !email || !telefono || !fecha || !hora || !personas) {
@@ -611,6 +669,18 @@ app.post("/api/reservas", async (req, res) => {
     );
 
     const reserva = await obtenerReservaPorId(result.rows[0].id);
+    let correoConfirmacion = { enviado: false };
+
+    if (enviarConfirmacionEmail) {
+      try {
+        correoConfirmacion = await enviarCorreoConfirmacionReserva(reserva);
+      } catch (emailError) {
+        console.error("Error enviando confirmación de reserva:", emailError);
+        correoConfirmacion = { enviado: false, motivo: "error_envio" };
+      }
+    }
+
+    reserva.correoConfirmacion = correoConfirmacion;
     res.status(201).json(reserva);
   } catch (err) {
     console.error("Error en POST reservas:", err);
