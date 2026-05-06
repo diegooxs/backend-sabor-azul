@@ -76,6 +76,26 @@ async function enviarCorreoConfirmacionReserva(reserva) {
   return { enviado: true };
 }
 
+async function enviarCorreoConfirmacionReservaConTimeout(reserva, timeoutMs = 8000) {
+  let timeoutId;
+
+  try {
+    return await Promise.race([
+      enviarCorreoConfirmacionReserva(reserva),
+      new Promise((resolve) => {
+        timeoutId = setTimeout(
+          () => resolve({ enviado: false, motivo: "timeout_envio" }),
+          timeoutMs
+        );
+      }),
+    ]);
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
+
 function convertirNumero(valor) {
   const numero = Number(valor);
   return Number.isFinite(numero) ? numero : NaN;
@@ -659,13 +679,15 @@ app.post("/api/reservas", async (req, res) => {
   const { nombre, email, telefono, fecha, hora, personas, enviarConfirmacionEmail } = req.body;
 
   try {
-    if (!nombre || !email || !telefono || !fecha || !hora || !personas) {
+    if (!nombre || !email || !fecha || !hora || !personas) {
       return res.status(400).json({ error: "Todos los campos son requeridos" });
     }
 
+    const telefonoReserva = normalizarTexto(telefono) || "No proporcionado";
+
     const result = await pool.query(
       "INSERT INTO reservas (nombre, email, telefono, fecha, hora, personas, estado) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
-      [nombre, email, telefono, fecha, hora, personas, "pendiente"]
+      [nombre, email, telefonoReserva, fecha, hora, personas, "pendiente"]
     );
 
     const reserva = await obtenerReservaPorId(result.rows[0].id);
@@ -673,7 +695,7 @@ app.post("/api/reservas", async (req, res) => {
 
     if (enviarConfirmacionEmail) {
       try {
-        correoConfirmacion = await enviarCorreoConfirmacionReserva(reserva);
+        correoConfirmacion = await enviarCorreoConfirmacionReservaConTimeout(reserva);
       } catch (emailError) {
         console.error("Error enviando confirmación de reserva:", emailError);
         correoConfirmacion = { enviado: false, motivo: "error_envio" };
