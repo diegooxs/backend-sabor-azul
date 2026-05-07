@@ -118,6 +118,70 @@ function obtenerCoordenadasRestaurante() {
   };
 }
 
+function obtenerMapsApiKey() {
+  return (
+    process.env.Maps_API_KEY ||
+    process.env.MAPS_API_KEY ||
+    process.env.GOOGLE_MAPS_API_KEY ||
+    ""
+  );
+}
+
+function mapearLugarGoogle(place) {
+  return {
+    place_id: place.place_id,
+    nombre: place.name,
+    direccion: place.vicinity || "",
+    rating: place.rating || null,
+    lat: place.geometry?.location?.lat,
+    lng: place.geometry?.location?.lng,
+    tipos: place.types || [],
+  };
+}
+
+async function buscarLugaresCercanosGoogle(lat, lng) {
+  const apiKey = obtenerMapsApiKey();
+
+  if (!apiKey) {
+    return [];
+  }
+
+  const tipos = ["museum", "park"];
+  const resultados = [];
+  const lugaresVistos = new Set();
+
+  for (const tipo of tipos) {
+    const url = new URL("https://maps.googleapis.com/maps/api/place/nearbysearch/json");
+    url.searchParams.set("key", apiKey);
+    url.searchParams.set("location", `${lat},${lng}`);
+    url.searchParams.set("radius", "2500");
+    url.searchParams.set("type", tipo);
+    url.searchParams.set("language", "es");
+
+    const respuesta = await fetch(url);
+    const datos = await respuesta.json();
+
+    if (datos.status !== "OK" && datos.status !== "ZERO_RESULTS") {
+      throw new Error(datos.error_message || `Google Places respondió ${datos.status}`);
+    }
+
+    for (const place of datos.results || []) {
+      if (!place.place_id || lugaresVistos.has(place.place_id)) continue;
+
+      const lugar = mapearLugarGoogle(place);
+
+      if (Number.isFinite(lugar.lat) && Number.isFinite(lugar.lng)) {
+        lugaresVistos.add(place.place_id);
+        resultados.push(lugar);
+      }
+    }
+  }
+
+  return resultados
+    .sort((a, b) => (b.rating || 0) - (a.rating || 0))
+    .slice(0, 3);
+}
+
 function crearRecomendacionesPorClima(tempC) {
   if (tempC >= 25) {
     return {
@@ -490,6 +554,68 @@ app.get("/api/clima-menu", async (_req, res) => {
   } catch (error) {
     console.error("Error consultando WeatherAPI:", error);
     res.status(502).json({ error: "No se pudo consultar WeatherAPI" });
+  }
+});
+
+app.get("/api/maps-config", (_req, res) => {
+  const apiKey = obtenerMapsApiKey();
+
+  if (!apiKey) {
+    return res.status(500).json({
+      error: "Falta configurar Maps_API_KEY en el backend",
+    });
+  }
+
+  res.json({ apiKey });
+});
+
+app.post("/api/ruta-y-lugares", async (req, res) => {
+  const lat = Number(req.body?.lat);
+  const lng = Number(req.body?.lng);
+  const restaurante = obtenerCoordenadasRestaurante();
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return res.status(400).json({ error: "Coordenadas inválidas" });
+  }
+
+  try {
+    const osrmUrl = new URL(
+      `https://router.project-osrm.org/route/v1/driving/${lng},${lat};${restaurante.lng},${restaurante.lat}`
+    );
+    osrmUrl.searchParams.set("overview", "full");
+    osrmUrl.searchParams.set("geometries", "geojson");
+    osrmUrl.searchParams.set("steps", "false");
+    osrmUrl.searchParams.set("alternatives", "false");
+
+    const [rutaRespuesta, lugares] = await Promise.all([
+      fetch(osrmUrl),
+      buscarLugaresCercanosGoogle(lat, lng),
+    ]);
+    const rutaDatos = await rutaRespuesta.json();
+
+    if (!rutaRespuesta.ok || rutaDatos.code !== "Ok" || !rutaDatos.routes?.length) {
+      throw new Error(rutaDatos.message || "No se pudo calcular la ruta");
+    }
+
+    const ruta = rutaDatos.routes[0];
+    const polyline = (ruta.geometry?.coordinates || []).map(([pLng, pLat]) => ({
+      lat: pLat,
+      lng: pLng,
+    }));
+
+    res.json({
+      origen: { lat, lng },
+      destino: restaurante,
+      ruta: {
+        polyline,
+        distancia_km: Number((ruta.distance / 1000).toFixed(2)),
+        duracion_min: Math.round(ruta.duration / 60),
+      },
+      lugares,
+    });
+  } catch (error) {
+    console.error("Error en ruta-y-lugares:", error);
+    res.status(502).json({ error: "No se pudo calcular la ruta o consultar lugares cercanos" });
   }
 });
 
