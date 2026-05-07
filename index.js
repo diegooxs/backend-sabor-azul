@@ -10,7 +10,12 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const ESTADOS_PEDIDO = new Set(["Pendiente", "Preparando", "Entregado", "Cancelado"]);
+const ESTADOS_PEDIDO = new Set([
+  "Pendiente",
+  "Preparando",
+  "Entregado",
+  "Cancelado",
+]);
 
 function normalizarTexto(valor) {
   return typeof valor === "string" ? valor.trim() : "";
@@ -59,7 +64,9 @@ async function enviarCorreoConfirmacionReserva(reserva) {
   const transporter = crearTransporterCorreo();
 
   if (!transporter) {
-    console.warn("Correo de reserva no enviado: faltan SMTP_HOST, SMTP_USER o SMTP_PASS.");
+    console.warn(
+      "Correo de reserva no enviado: faltan SMTP_HOST, SMTP_USER o SMTP_PASS.",
+    );
     return { enviado: false, motivo: "smtp_no_configurado" };
   }
 
@@ -76,7 +83,10 @@ async function enviarCorreoConfirmacionReserva(reserva) {
   return { enviado: true };
 }
 
-async function enviarCorreoConfirmacionReservaConTimeout(reserva, timeoutMs = 8000) {
+async function enviarCorreoConfirmacionReservaConTimeout(
+  reserva,
+  timeoutMs = 8000,
+) {
   let timeoutId;
 
   try {
@@ -85,7 +95,7 @@ async function enviarCorreoConfirmacionReservaConTimeout(reserva, timeoutMs = 80
       new Promise((resolve) => {
         timeoutId = setTimeout(
           () => resolve({ enviado: false, motivo: "timeout_envio" }),
-          timeoutMs
+          timeoutMs,
         );
       }),
     ]);
@@ -108,9 +118,112 @@ function obtenerCoordenadasRestaurante() {
   };
 }
 
+function crearRecomendacionesPorClima(tempC) {
+  if (tempC >= 25) {
+    return {
+      tipo: "calor",
+      titulo: "Hace calor en Oaxaca",
+      mensaje: "Te recomendamos bebidas frías, ensaladas y platillos frescos.",
+      items: [
+        {
+          id: 201,
+          nombre: "Agua fresca de temporada",
+          descripcion: "Bebida fría ideal para refrescarte.",
+          precio: 55,
+          imagen:
+            "https://images.unsplash.com/photo-1621263764928-df1444c5e859?w=300&q=80",
+        },
+        {
+          id: 101,
+          nombre: "Ensalada César",
+          descripcion: "Lechuga fresca, aderezo artesanal y parmesano.",
+          precio: 160,
+          imagen:
+            "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=300&q=80",
+        },
+        {
+          id: 202,
+          nombre: "Ceviche Sabor Azul",
+          descripcion: "Camarón macerado en cítricos, fresco y ligero.",
+          precio: 280,
+          imagen:
+            "https://images.unsplash.com/photo-1604908176997-125f25cc6f3d?w=300&q=80",
+        },
+      ],
+    };
+  }
+
+  if (tempC <= 18) {
+    return {
+      tipo: "frio",
+      titulo: "Clima fresco en Oaxaca",
+      mensaje: "Hoy convienen café, sopas y platos calientes.",
+      items: [
+        {
+          id: 203,
+          nombre: "Café de olla",
+          descripcion: "Café caliente con canela y piloncillo.",
+          precio: 65,
+          imagen:
+            "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=300&q=80",
+        },
+        {
+          id: 204,
+          nombre: "Sopa de tortilla",
+          descripcion: "Caldo caliente con tortilla crujiente y chile pasilla.",
+          precio: 140,
+          imagen:
+            "https://images.unsplash.com/photo-1547592166-23ac45744acd?w=300&q=80",
+        },
+        {
+          id: 205,
+          nombre: "Mole de la casa",
+          descripcion: "Platillo caliente con sabores tradicionales.",
+          precio: 260,
+          imagen:
+            "https://images.unsplash.com/photo-1621996346565-e3dbc646d9a9?w=300&q=80",
+        },
+      ],
+    };
+  }
+
+  return {
+    tipo: "templado",
+    titulo: "Clima agradable en Oaxaca",
+    mensaje:
+      "El día está ideal para especiales de la casa y experiencias del chef.",
+    items: [
+      {
+        id: 103,
+        nombre: "Exp. Tres Cocinas",
+        descripcion: "Oaxaqueña, mexicana e internacional en una experiencia.",
+        precio: 850,
+        imagen:
+          "https://images.unsplash.com/photo-1559339352-11d035aa65de?w=300&q=80",
+      },
+      {
+        id: 102,
+        nombre: "Pizza Azul",
+        descripcion: "Higos, jamón serrano y queso gorgonzola.",
+        precio: 400,
+        imagen:
+          "https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=300&q=80",
+      },
+      {
+        id: 104,
+        nombre: "Esferas de Cacao",
+        descripcion: "Postre de cacao nativo con mousse de mamey.",
+        precio: 220,
+        imagen:
+          "https://images.unsplash.com/photo-1639158924965-7be3bb57506b?w=300&q=80",
+      },
+    ],
+  };
+}
+
 async function obtenerUsuarioGoogle(idToken) {
   const respuesta = await fetch(
-    `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`
+    `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`,
   );
   const perfil = await respuesta.json();
 
@@ -118,7 +231,10 @@ async function obtenerUsuarioGoogle(idToken) {
     throw new Error(perfil.error_description || "Token de Google no válido");
   }
 
-  if (process.env.GOOGLE_CLIENT_ID && perfil.aud !== process.env.GOOGLE_CLIENT_ID) {
+  if (
+    process.env.GOOGLE_CLIENT_ID &&
+    perfil.aud !== process.env.GOOGLE_CLIENT_ID
+  ) {
     throw new Error("El token de Google no pertenece a este cliente");
   }
 
@@ -137,7 +253,10 @@ function validarPedido(payload) {
   const cliente = normalizarTexto(payload?.cliente);
   const estado = normalizarTexto(payload?.estado) || "Pendiente";
   const productos = Array.isArray(payload?.productos) ? payload.productos : [];
-  const userId = payload?.user_id == null || payload.user_id === "" ? null : Number(payload.user_id);
+  const userId =
+    payload?.user_id == null || payload.user_id === ""
+      ? null
+      : Number(payload.user_id);
 
   if (!cliente) {
     return { error: "El nombre del cliente es requerido" };
@@ -158,9 +277,13 @@ function validarPedido(payload) {
   const productosNormalizados = [];
 
   for (const producto of productos) {
-    const nombre = normalizarTexto(producto?.nombre ?? producto?.nombre_producto);
+    const nombre = normalizarTexto(
+      producto?.nombre ?? producto?.nombre_producto,
+    );
     const cantidad = Number(producto?.cantidad);
-    const precioUnitario = convertirNumero(producto?.precio ?? producto?.precio_unitario);
+    const precioUnitario = convertirNumero(
+      producto?.precio ?? producto?.precio_unitario,
+    );
     const platilloId =
       producto?.id == null || producto.id === "" ? null : Number(producto.id);
 
@@ -190,9 +313,12 @@ function validarPedido(payload) {
   }
 
   const totalCalculado = Number(
-    productosNormalizados.reduce((acumulado, producto) => acumulado + producto.subtotal, 0).toFixed(2)
+    productosNormalizados
+      .reduce((acumulado, producto) => acumulado + producto.subtotal, 0)
+      .toFixed(2),
   );
-  const totalRecibido = payload?.total == null ? totalCalculado : convertirNumero(payload.total);
+  const totalRecibido =
+    payload?.total == null ? totalCalculado : convertirNumero(payload.total);
 
   if (!Number.isFinite(totalRecibido) || totalRecibido < 0) {
     return { error: "El total del pedido no es válido" };
@@ -251,7 +377,7 @@ async function obtenerPedidos(params = []) {
       ${params.length ? "AND p.id = $1" : ""}
       ORDER BY COALESCE(p.fecha, p.created_at) DESC, p.id DESC, d.id ASC
     `,
-    params
+    params,
   );
 
   const pedidos = [];
@@ -291,7 +417,7 @@ async function obtenerPlatillosExistentes(client, productos) {
 
   const result = await client.query(
     "SELECT id FROM platillos WHERE id = ANY($1::int[])",
-    [ids]
+    [ids],
   );
 
   return new Set(result.rows.map((row) => Number(row.id)));
@@ -315,9 +441,61 @@ app.get("/api/health", async (_req, res) => {
   }
 });
 
+app.get("/api/clima-menu", async (_req, res) => {
+  const ciudad = process.env.WEATHERAPI_CITY || "Oaxaca, Mexico";
+  const apiKey = process.env.WEATHERAPI_KEY;
+
+  if (!apiKey) {
+    const tempC = 29;
+    return res.json({
+      fuente: "demo",
+      ciudad,
+      pais: "Mexico",
+      temp_c: tempC,
+      condicion: "Soleado",
+      icono: "",
+      recomendaciones: crearRecomendacionesPorClima(tempC),
+    });
+  }
+
+  try {
+    const url = new URL("https://api.weatherapi.com/v1/current.json");
+    url.searchParams.set("key", apiKey);
+    url.searchParams.set("q", ciudad);
+    url.searchParams.set("lang", "es");
+    url.searchParams.set("aqi", "no");
+
+    const respuesta = await fetch(url);
+    const datos = await respuesta.json();
+
+    if (!respuesta.ok) {
+      throw new Error(
+        datos.error?.message || "No se pudo consultar WeatherAPI",
+      );
+    }
+
+    const tempC = Number(datos.current.temp_c);
+
+    res.json({
+      fuente: "weatherapi",
+      ciudad: datos.location.name,
+      pais: datos.location.country,
+      temp_c: tempC,
+      condicion: datos.current.condition?.text || "Clima no disponible",
+      icono: datos.current.condition?.icon
+        ? `https:${datos.current.condition.icon}`
+        : "",
+      recomendaciones: crearRecomendacionesPorClima(tempC),
+    });
+  } catch (error) {
+    console.error("Error consultando WeatherAPI:", error);
+    res.status(502).json({ error: "No se pudo consultar WeatherAPI" });
+  }
+});
+
 app.post("/api/login", async (req, res) => {
   const { username, password } = req.body;
-  
+
   try {
     const result = await pool.query("SELECT * FROM users WHERE username = $1", [
       username.trim(),
@@ -332,13 +510,13 @@ app.post("/api/login", async (req, res) => {
     let hashParaComparar = user.password.replace(/^\$2y\$/, "$2b$");
 
     const match = await bcrypt.compare(password, hashParaComparar);
-      
+
     if (match) {
-      return res.json({ 
+      return res.json({
         id: user.id,
-        rol: user.rol, 
+        rol: user.rol,
         username: user.username,
-        message: "¡Bienvenido!" 
+        message: "¡Bienvenido!",
       });
     }
 
@@ -353,23 +531,29 @@ app.post("/api/login-google", async (req, res) => {
   const { credential } = req.body;
 
   if (!credential) {
-    return res.status(400).json({ message: "No se recibió la credencial de Google" });
+    return res
+      .status(400)
+      .json({ message: "No se recibió la credencial de Google" });
   }
 
   try {
     const perfilGoogle = await obtenerUsuarioGoogle(credential);
     const username = perfilGoogle.email.toLowerCase();
-    const userResult = await pool.query("SELECT * FROM users WHERE username = $1", [
-      username,
-    ]);
+    const userResult = await pool.query(
+      "SELECT * FROM users WHERE username = $1",
+      [username],
+    );
 
     let user = userResult.rows[0];
 
     if (!user) {
-      const passwordTemporal = await bcrypt.hash(`google:${username}:${Date.now()}`, 10);
+      const passwordTemporal = await bcrypt.hash(
+        `google:${username}:${Date.now()}`,
+        10,
+      );
       const nuevoUsuario = await pool.query(
         "INSERT INTO users (username, password, rol) VALUES ($1, $2, $3) RETURNING id, username, rol",
-        [username, passwordTemporal, "cliente"]
+        [username, passwordTemporal, "cliente"],
       );
       user = nuevoUsuario.rows[0];
     }
@@ -385,23 +569,32 @@ app.post("/api/login-google", async (req, res) => {
     });
   } catch (err) {
     console.error("Error en login-google:", err);
-    res.status(401).json({ message: err.message || "No se pudo iniciar sesión con Google" });
+    res
+      .status(401)
+      .json({ message: err.message || "No se pudo iniciar sesión con Google" });
   }
 });
 
 app.post("/api/recuperar-password", async (req, res) => {
   const { username, nuevaPassword } = req.body;
 
-  if (!username || !username.trim() || !nuevaPassword || nuevaPassword.length < 6) {
+  if (
+    !username ||
+    !username.trim() ||
+    !nuevaPassword ||
+    nuevaPassword.length < 6
+  ) {
     return res.status(400).json({
-      message: "Ingresa tu usuario y una nueva contraseña de al menos 6 caracteres",
+      message:
+        "Ingresa tu usuario y una nueva contraseña de al menos 6 caracteres",
     });
   }
 
   try {
-    const userResult = await pool.query("SELECT id FROM users WHERE username = $1", [
-      username.trim(),
-    ]);
+    const userResult = await pool.query(
+      "SELECT id FROM users WHERE username = $1",
+      [username.trim()],
+    );
 
     if (userResult.rows.length === 0) {
       return res.status(404).json({ message: "El usuario no existe" });
@@ -492,7 +685,7 @@ app.delete("/api/usuarios/:id", async (req, res) => {
 app.get("/api/categorias", async (req, res) => {
   try {
     const result = await pool.query(
-      "SELECT id, nombre FROM categorias ORDER BY id ASC"
+      "SELECT id, nombre FROM categorias ORDER BY id ASC",
     );
     res.json(result.rows);
   } catch (err) {
@@ -519,16 +712,19 @@ app.post("/api/platillos", async (req, res) => {
   try {
     const result = await pool.query(
       "INSERT INTO platillos (nombre, descripcion, precio, imagen, categoria_id) VALUES ($1, $2, $3, $4, $5) RETURNING id, nombre, descripcion, precio, imagen, categoria_id",
-      [nombre, descripcion, precio, imagen, categoria_id]
+      [nombre, descripcion, precio, imagen, categoria_id],
     );
-    
+
     const platillo = result.rows[0];
-    const catResult = await pool.query("SELECT nombre FROM categorias WHERE id = $1", [platillo.categoria_id]);
-    
+    const catResult = await pool.query(
+      "SELECT nombre FROM categorias WHERE id = $1",
+      [platillo.categoria_id],
+    );
+
     if (catResult.rows.length > 0) {
       platillo.categoria = catResult.rows[0].nombre;
     }
-    
+
     res.status(201).json(platillo);
   } catch (err) {
     console.error("Error en POST platillos:", err);
@@ -552,7 +748,7 @@ app.put("/api/platillos/:id", async (req, res) => {
   try {
     const result = await pool.query(
       "UPDATE platillos SET nombre=$1, descripcion=$2, precio=$3, imagen=$4, categoria_id=$5 WHERE id=$6 RETURNING id, nombre, descripcion, precio, imagen, categoria_id",
-      [nombre, descripcion, precio, imagen, categoria_id, id]
+      [nombre, descripcion, precio, imagen, categoria_id, id],
     );
 
     if (result.rows.length === 0) {
@@ -560,12 +756,15 @@ app.put("/api/platillos/:id", async (req, res) => {
     }
 
     const platillo = result.rows[0];
-    const catResult = await pool.query("SELECT nombre FROM categorias WHERE id = $1", [platillo.categoria_id]);
-    
+    const catResult = await pool.query(
+      "SELECT nombre FROM categorias WHERE id = $1",
+      [platillo.categoria_id],
+    );
+
     if (catResult.rows.length > 0) {
       platillo.categoria = catResult.rows[0].nombre;
     }
-    
+
     res.json(platillo);
   } catch (err) {
     console.error("Error en PUT platillos:", err);
@@ -586,7 +785,7 @@ const seleccionarMensajesContacto = `
 app.get("/api/mensajes-contacto", async (req, res) => {
   try {
     const result = await pool.query(
-      `${seleccionarMensajesContacto} ORDER BY created_at DESC, id DESC`
+      `${seleccionarMensajesContacto} ORDER BY created_at DESC, id DESC`,
     );
     res.json(result.rows);
   } catch (err) {
@@ -598,7 +797,14 @@ app.get("/api/mensajes-contacto", async (req, res) => {
 app.post("/api/mensajes-contacto", async (req, res) => {
   const { nombre, email, mensaje } = req.body;
 
-  if (!nombre || !nombre.trim() || !email || !email.trim() || !mensaje || !mensaje.trim()) {
+  if (
+    !nombre ||
+    !nombre.trim() ||
+    !email ||
+    !email.trim() ||
+    !mensaje ||
+    !mensaje.trim()
+  ) {
     return res.status(400).json({ error: "Todos los campos son requeridos" });
   }
 
@@ -609,12 +815,12 @@ app.post("/api/mensajes-contacto", async (req, res) => {
         VALUES ($1, $2, $3)
         RETURNING id
       `,
-      [nombre.trim(), email.trim(), mensaje.trim()]
+      [nombre.trim(), email.trim(), mensaje.trim()],
     );
 
     const mensajeCreado = await pool.query(
       `${seleccionarMensajesContacto} WHERE id = $1`,
-      [result.rows[0].id]
+      [result.rows[0].id],
     );
 
     res.status(201).json(mensajeCreado.rows[0]);
@@ -628,7 +834,7 @@ app.delete("/api/mensajes-contacto/:id", async (req, res) => {
   try {
     const result = await pool.query(
       "DELETE FROM mensajes_contacto WHERE id = $1 RETURNING id",
-      [req.params.id]
+      [req.params.id],
     );
 
     if (result.rows.length === 0) {
@@ -666,7 +872,7 @@ async function obtenerReservaPorId(id) {
 app.get("/api/reservas", async (req, res) => {
   try {
     const result = await pool.query(
-      `${seleccionarReservas} ORDER BY fecha DESC, hora DESC`
+      `${seleccionarReservas} ORDER BY fecha DESC, hora DESC`,
     );
     res.json(result.rows);
   } catch (err) {
@@ -676,7 +882,15 @@ app.get("/api/reservas", async (req, res) => {
 });
 
 app.post("/api/reservas", async (req, res) => {
-  const { nombre, email, telefono, fecha, hora, personas, enviarConfirmacionEmail } = req.body;
+  const {
+    nombre,
+    email,
+    telefono,
+    fecha,
+    hora,
+    personas,
+    enviarConfirmacionEmail,
+  } = req.body;
 
   try {
     if (!nombre || !email || !fecha || !hora || !personas) {
@@ -687,7 +901,7 @@ app.post("/api/reservas", async (req, res) => {
 
     const result = await pool.query(
       "INSERT INTO reservas (nombre, email, telefono, fecha, hora, personas, estado) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
-      [nombre, email, telefonoReserva, fecha, hora, personas, "pendiente"]
+      [nombre, email, telefonoReserva, fecha, hora, personas, "pendiente"],
     );
 
     const reserva = await obtenerReservaPorId(result.rows[0].id);
@@ -695,7 +909,8 @@ app.post("/api/reservas", async (req, res) => {
 
     if (enviarConfirmacionEmail) {
       try {
-        correoConfirmacion = await enviarCorreoConfirmacionReservaConTimeout(reserva);
+        correoConfirmacion =
+          await enviarCorreoConfirmacionReservaConTimeout(reserva);
       } catch (emailError) {
         console.error("Error enviando confirmación de reserva:", emailError);
         correoConfirmacion = { enviado: false, motivo: "error_envio" };
@@ -719,10 +934,12 @@ app.put("/api/reservas/:id", async (req, res) => {
     let params;
 
     if (estado) {
-      query = "UPDATE reservas SET estado=$1, updated_at=CURRENT_TIMESTAMP WHERE id=$2 RETURNING id";
+      query =
+        "UPDATE reservas SET estado=$1, updated_at=CURRENT_TIMESTAMP WHERE id=$2 RETURNING id";
       params = [estado, id];
     } else {
-      query = "UPDATE reservas SET nombre=$1, email=$2, telefono=$3, fecha=$4, hora=$5, personas=$6, updated_at=CURRENT_TIMESTAMP WHERE id=$7 RETURNING id";
+      query =
+        "UPDATE reservas SET nombre=$1, email=$2, telefono=$3, fecha=$4, hora=$5, personas=$6, updated_at=CURRENT_TIMESTAMP WHERE id=$7 RETURNING id";
       params = [nombre, email, telefono, fecha, hora, personas, id];
     }
 
@@ -742,7 +959,10 @@ app.put("/api/reservas/:id", async (req, res) => {
 
 app.delete("/api/reservas/:id", async (req, res) => {
   try {
-    const result = await pool.query("DELETE FROM reservas WHERE id = $1 RETURNING id", [req.params.id]);
+    const result = await pool.query(
+      "DELETE FROM reservas WHERE id = $1 RETURNING id",
+      [req.params.id],
+    );
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: "Reserva no encontrada" });
@@ -766,7 +986,7 @@ app.get("/api/distancia-restaurante", async (req, res) => {
 
   try {
     const osrmUrl = new URL(
-      `https://router.project-osrm.org/route/v1/driving/${lng},${lat};${restaurante.lng},${restaurante.lat}`
+      `https://router.project-osrm.org/route/v1/driving/${lng},${lat};${restaurante.lng},${restaurante.lat}`,
     );
     osrmUrl.searchParams.set("overview", "false");
     osrmUrl.searchParams.set("alternatives", "false");
@@ -790,7 +1010,9 @@ app.get("/api/distancia-restaurante", async (req, res) => {
     });
   } catch (err) {
     console.error("Error consultando OSRM:", err);
-    res.status(502).json({ error: "No se pudo calcular la distancia al restaurante" });
+    res
+      .status(502)
+      .json({ error: "No se pudo calcular la distancia al restaurante" });
   }
 });
 
@@ -832,7 +1054,10 @@ app.post("/api/pedidos", async (req, res) => {
 
   try {
     await client.query("BEGIN");
-    const platillosExistentes = await obtenerPlatillosExistentes(client, productos);
+    const platillosExistentes = await obtenerPlatillosExistentes(
+      client,
+      productos,
+    );
 
     const pedidoResult = await client.query(
       `
@@ -840,7 +1065,7 @@ app.post("/api/pedidos", async (req, res) => {
         VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         RETURNING id
       `,
-      [user_id, cliente, estado, total]
+      [user_id, cliente, estado, total],
     );
 
     const pedidoId = pedidoResult.rows[0].id;
@@ -862,12 +1087,14 @@ app.post("/api/pedidos", async (req, res) => {
         `,
         [
           pedidoId,
-          platillosExistentes.has(producto.platillo_id) ? producto.platillo_id : null,
+          platillosExistentes.has(producto.platillo_id)
+            ? producto.platillo_id
+            : null,
           producto.nombre_producto,
           producto.cantidad,
           producto.precio_unitario,
           producto.subtotal,
-        ]
+        ],
       );
     }
 
@@ -886,10 +1113,14 @@ app.post("/api/pedidos", async (req, res) => {
 
 app.post("/api/pagos/checkout-sesion", async (req, res) => {
   const total = convertirNumero(req.body?.total);
-  const productos = Array.isArray(req.body?.productos) ? req.body.productos : [];
+  const productos = Array.isArray(req.body?.productos)
+    ? req.body.productos
+    : [];
 
   if (!Number.isFinite(total) || total <= 0 || productos.length === 0) {
-    return res.status(400).json({ error: "El pago debe incluir productos y un total válido" });
+    return res
+      .status(400)
+      .json({ error: "El pago debe incluir productos y un total válido" });
   }
 
   if (!process.env.STRIPE_SECRET_KEY) {
@@ -905,34 +1136,45 @@ app.post("/api/pagos/checkout-sesion", async (req, res) => {
   try {
     const params = new URLSearchParams();
     params.set("mode", "payment");
-    params.set("success_url", `${obtenerFrontendUrl()}/#/menu?checkout=success`);
+    params.set(
+      "success_url",
+      `${obtenerFrontendUrl()}/#/menu?checkout=success`,
+    );
     params.set("cancel_url", `${obtenerFrontendUrl()}/#/menu?checkout=cancel`);
 
     productos.forEach((producto, index) => {
-      params.set(`line_items[${index}][quantity]`, String(Number(producto.cantidad) || 1));
+      params.set(
+        `line_items[${index}][quantity]`,
+        String(Number(producto.cantidad) || 1),
+      );
       params.set(`line_items[${index}][price_data][currency]`, "mxn");
       params.set(
         `line_items[${index}][price_data][unit_amount]`,
-        String(Math.max(1, Math.round(Number(producto.precio) * 100)))
+        String(Math.max(1, Math.round(Number(producto.precio) * 100))),
       );
       params.set(
         `line_items[${index}][price_data][product_data][name]`,
-        normalizarTexto(producto.nombre) || "Producto Sabor Azul"
+        normalizarTexto(producto.nombre) || "Producto Sabor Azul",
       );
     });
 
-    const respuesta = await fetch("https://api.stripe.com/v1/checkout/sessions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.STRIPE_SECRET_KEY}`,
-        "Content-Type": "application/x-www-form-urlencoded",
+    const respuesta = await fetch(
+      "https://api.stripe.com/v1/checkout/sessions",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: params,
       },
-      body: params,
-    });
+    );
     const datos = await respuesta.json();
 
     if (!respuesta.ok) {
-      throw new Error(datos.error?.message || "No se pudo crear la sesión de Stripe");
+      throw new Error(
+        datos.error?.message || "No se pudo crear la sesión de Stripe",
+      );
     }
 
     res.json({
@@ -962,7 +1204,7 @@ app.put("/api/pedidos/:id", async (req, res) => {
         WHERE id = $2
         RETURNING id
       `,
-      [estado, req.params.id]
+      [estado, req.params.id],
     );
 
     if (result.rows.length === 0) {
@@ -982,8 +1224,13 @@ app.delete("/api/pedidos/:id", async (req, res) => {
 
   try {
     await client.query("BEGIN");
-    await client.query("DELETE FROM pedido_detalles WHERE pedido_id = $1", [req.params.id]);
-    const result = await client.query("DELETE FROM pedidos WHERE id = $1 RETURNING id", [req.params.id]);
+    await client.query("DELETE FROM pedido_detalles WHERE pedido_id = $1", [
+      req.params.id,
+    ]);
+    const result = await client.query(
+      "DELETE FROM pedidos WHERE id = $1 RETURNING id",
+      [req.params.id],
+    );
 
     if (result.rows.length === 0) {
       await client.query("ROLLBACK");
