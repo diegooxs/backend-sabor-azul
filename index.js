@@ -26,28 +26,24 @@ function obtenerFrontendUrl() {
 }
 
 function crearTransporterCorreo() {
-  const host = process.env.SMTP_HOST || "smtp.gmail.com";
-  const port = 465; 
   const user = process.env.SMTP_USER;
   const pass = process.env.SMTP_PASS;
 
   if (!user || !pass) {
+    console.log("Faltan credenciales SMTP en las variables de entorno");
     return null;
   }
 
   return nodemailer.createTransport({
-    host,
-    port,
-    secure: true, 
-    auth: { user, pass },
-    tls: {
-      rejectUnauthorized: false 
+    service: 'gmail', 
+    auth: { 
+        user: user, 
+        pass: pass 
     },
-    debug: true,  // <--- AGREGA ESTO
-    logger: true  // <--- AGREGA ESTO
+    logger: true, 
+    debug: true
   });
 }
-
 function crearHtmlConfirmacionReserva(reserva) {
   return `
     <div style="font-family: Arial, sans-serif; color: #1f2937; line-height: 1.5;">
