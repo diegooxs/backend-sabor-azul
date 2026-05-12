@@ -179,7 +179,7 @@ async function buscarLugaresCercanosGoogle(lat, lng) {
 
   return resultados
     .sort((a, b) => (b.rating || 0) - (a.rating || 0))
-    .slice(0, 3);
+    .slice(0, 6);
 }
 
 function crearRecomendacionesPorClima(tempC) {
