@@ -30,17 +30,23 @@ function crearTransporterCorreo() {
   const pass = process.env.SMTP_PASS;
 
   if (!user || !pass) {
-    console.log("Faltan credenciales SMTP en las variables de entorno");
+    console.log("Faltan credenciales SMTP");
     return null;
   }
 
   return nodemailer.createTransport({
-    service: 'gmail', 
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true,
     auth: { 
-        user: user, 
-        pass: pass 
+      user: user, 
+      pass: pass 
     },
-    logger: true, 
+    tls: {
+      rejectUnauthorized: false
+    },
+    family: 4, 
+    logger: true,
     debug: true
   });
 }
