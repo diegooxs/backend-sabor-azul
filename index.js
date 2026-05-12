@@ -42,7 +42,9 @@ function crearTransporterCorreo() {
     auth: { user, pass },
     tls: {
       rejectUnauthorized: false 
-    }
+    },
+    debug: true,  // <--- AGREGA ESTO
+    logger: true  // <--- AGREGA ESTO
   });
 }
 
@@ -88,7 +90,7 @@ async function enviarCorreoConfirmacionReserva(reserva) {
 
 async function enviarCorreoConfirmacionReservaConTimeout(
   reserva,
-  timeoutMs = 8000,
+  timeoutMs = 30000,
 ) {
   let timeoutId;
 
