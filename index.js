@@ -2,7 +2,6 @@ const express = require("express");
 const cors = require("cors");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
-const nodemailer = require("nodemailer");
 const pool = require("./db");
 require("dotenv").config();
 
@@ -25,31 +24,7 @@ function obtenerFrontendUrl() {
   return process.env.FRONTEND_URL || "http://localhost:5173";
 }
 
-function crearTransporterCorreo() {
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASS;
 
-  if (!user || !pass) {
-    console.log("Faltan credenciales SMTP");
-    return null;
-  }
-
-  return nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 465,
-    secure: true,
-    auth: { 
-      user: user, 
-      pass: pass 
-    },
-    tls: {
-      rejectUnauthorized: false
-    },
-    family: 4, 
-    logger: true,
-    debug: true
-  });
-}
 function crearHtmlConfirmacionReserva(reserva) {
   return `
     <div style="font-family: Arial, sans-serif; color: #1f2937; line-height: 1.5;">
@@ -67,50 +42,48 @@ function crearHtmlConfirmacionReserva(reserva) {
   `;
 }
 
+// BUSCA ESTA FUNCIÓN Y REEMPLÁZALA COMPLETAMENTE
 async function enviarCorreoConfirmacionReserva(reserva) {
-  const transporter = crearTransporterCorreo();
-
-  if (!transporter) {
-    console.warn(
-      "Correo de reserva no enviado: faltan SMTP_HOST, SMTP_USER o SMTP_PASS.",
-    );
-    return { enviado: false, motivo: "smtp_no_configurado" };
-  }
-
-  await transporter.sendMail({
-    from: process.env.MAIL_FROM || process.env.SMTP_USER,
-    to: reserva.email,
-    subject: `Confirmación de reservación Sabor Azul - ${reserva.fecha} ${reserva.hora}`,
-    text:
-      `Hola ${reserva.nombre}, recibimos tu reservación para ${reserva.personas} persona(s) ` +
-      `el ${reserva.fecha} a las ${reserva.hora}. Estado: ${reserva.estado}.`,
-    html: crearHtmlConfirmacionReserva(reserva),
-  });
-
-  return { enviado: true };
-}
-
-async function enviarCorreoConfirmacionReservaConTimeout(
-  reserva,
-  timeoutMs = 30000,
-) {
-  let timeoutId;
+  const apiKey = process.env.BREVO_API_KEY;
 
   try {
-    return await Promise.race([
-      enviarCorreoConfirmacionReserva(reserva),
-      new Promise((resolve) => {
-        timeoutId = setTimeout(
-          () => resolve({ enviado: false, motivo: "timeout_envio" }),
-          timeoutMs,
-        );
-      }),
-    ]);
-  } finally {
-    if (timeoutId) {
-      clearTimeout(timeoutId);
+    const respuesta = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        'accept': 'application/json',
+        'api-key': apiKey, // Aquí el backend leerá la clave que pongas en Render
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        sender: {
+          name: "Sabor Azul",
+          email: "diegostgo311@gmail.com" // Debe ser el correo verificado en tu cuenta de Brevo
+        },
+        to: [{
+          email: reserva.email,
+          name: reserva.nombre
+        }],
+        subject: `Confirmación de reservación - Sabor Azul`,
+        // Aquí asegúrate de que 'crearHtmlConfirmacionReserva' sea el nombre de tu función que genera el HTML
+        htmlContent: crearHtmlConfirmacionReserva(reserva) 
+      })
+    });
+
+    if (!respuesta.ok) {
+      const errorDetalle = await respuesta.json();
+      console.error("Error detallado de Brevo:", errorDetalle);
+      return { enviado: false };
     }
+
+    return { enviado: true };
+  } catch (error) {
+    console.error("Fallo de conexión con la API:", error);
+    return { enviado: false };
   }
+}
+
+async function enviarCorreoConfirmacionReservaConTimeout(reserva) {
+  return await enviarCorreoConfirmacionReserva(reserva);
 }
 
 function convertirNumero(valor) {
@@ -1351,6 +1324,7 @@ app.put("/api/pedidos/:id", async (req, res) => {
     res.status(500).json({ error: "Error al actualizar pedido" });
   }
 });
+
 
 app.delete("/api/pedidos/:id", async (req, res) => {
   const client = await pool.connect();
