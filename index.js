@@ -146,7 +146,7 @@ async function buscarLugaresCercanosGoogle(lat, lng) {
     return [];
   }
 
-  const tipos = ["museum", "park", "church", "tourist_attraction"];
+  const tipos = ["church", "tourist_attraction", "museum", "park"];
   const resultados = [];
   const lugaresVistos = new Set();
 
